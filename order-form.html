@@ -1,433 +1,119 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>블루베리 주문</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+// ── 블루베리 주문 관리 - Google Apps Script ──────────────────
+// A:시간 B:날짜 C:받는분 D:우편번호 E:주소 F:상세주소
+// G:일반전화 H:휴대전화 I:중량 J:부피 K:내용품코드 L:내용물
+// M:배달방식 N:배송시요청사항 O:수량(KG) P:상태
 
-    body {
-      font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
-      background: #f0f4f8;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
+const SHEET_NAME = '주문목록';
+const HEADERS = [
+  '시간', '날짜',
+  '받는 분', '우편번호', '주소(시도+시군구+도로명+건물번호)', '상세주소(동, 호수, 洞명칭, 아파트, 건물명 등)',
+  '일반전화(02-1234-5678)', '휴대전화(010-1234-5678)', '중량(kg)', '부피(cm)=가로+세로+높이',
+  '내용품코드', '내용물', '배달방식', '배송시요청사항',
+  '수량(KG)', '상태'
+];
 
-    .card {
-      background: white;
-      border-radius: 16px;
-      padding: 36px 32px;
-      width: 100%;
-      max-width: 480px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-    }
+function getSheet() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  let   sheet = ss.getSheetByName(SHEET_NAME);
 
-    .header {
-      text-align: center;
-      margin-bottom: 28px;
-    }
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME);
+    sheet.appendRow(HEADERS);
+    sheet.getRange(1, 1, 1, HEADERS.length)
+      .setFontWeight('bold')
+      .setBackground('#4a90e2')
+      .setFontColor('white');
+    sheet.setFrozenRows(1);
+    // 우편번호 열(D=4) 텍스트 형식 지정
+    sheet.getRange('D:D').setNumberFormat('@');
+  }
 
-    .header .emoji { font-size: 48px; }
+  return sheet;
+}
 
-    .header h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: #1a1a2e;
-      margin-top: 8px;
-    }
+function doGet(e) {
+  if (e.parameter.action === 'getOrders') return getOrders();
+  return ContentService
+    .createTextOutput(JSON.stringify({ error: 'Unknown action' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-    .header p {
-      font-size: 14px;
-      color: #666;
-      margin-top: 4px;
-    }
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    if (body.action === 'markShipped') return markShipped(body.rowIndex);
+    return saveOrder(body);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
 
-    .form-group {
-      margin-bottom: 18px;
-    }
+function saveOrder(data) {
+  const sheet = getSheet();
 
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: #444;
-      margin-bottom: 6px;
-    }
+  const now   = new Date();
+  const time  = Utilities.formatDate(now, 'Asia/Seoul', 'HH:mm:ss');
+  const date  = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
 
-    label .required { color: #e74c3c; margin-left: 2px; }
+  const newRow = sheet.getLastRow() + 1;
 
-    input[type="text"],
-    input[type="tel"],
-    input[type="number"] {
-      width: 100%;
-      padding: 12px 14px;
-      border: 1.5px solid #ddd;
-      border-radius: 8px;
-      font-size: 15px;
-      color: #222;
-      transition: border-color 0.2s;
-      outline: none;
-    }
+  sheet.appendRow([
+    time,                // A: 시간
+    date,                // B: 날짜
+    data.name,           // C: 받는 분
+    "'"+data.postcode,   // D: 우편번호 (텍스트 강제)
+    data.address1,       // E: 주소(도로명)
+    data.address2 || '', // F: 상세주소
+    '',                  // G: 일반전화 (공백)
+    data.phone,          // H: 휴대전화
+    '',                  // I: 중량 (공백)
+    '',                  // J: 부피 (공백)
+    '',                  // K: 내용품코드 (공백)
+    String(data.quantity), // L: 내용물 (숫자만)
+    '',                  // M: 배달방식
+    '',                  // N: 배송시요청사항
+    data.quantity,       // O: 수량(KG)
+    '배송대기'            // P: 상태
+  ]);
 
-    input:focus { border-color: #4a90e2; }
-    input:read-only { background: #f7f7f7; color: #555; cursor: default; }
+  return ContentService
+    .createTextOutput(JSON.stringify({ success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-    .address-row {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
+function getOrders() {
+  const sheet  = getSheet();
+  const values = sheet.getDataRange().getValues();
 
-    .address-row input { flex: 1; }
+  if (values.length <= 1) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ orders: [] }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 
-    .btn-search {
-      padding: 12px 16px;
-      background: #4a90e2;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: background 0.2s;
-    }
+  const orders = values.slice(1).map((row, idx) => ({
+    rowIndex : idx + 2,
+    orderedAt: row[1] + ' ' + row[0], // 날짜 + 시간
+    name     : row[2],
+    postcode : row[3],
+    address  : row[4] + (row[5] ? ' ' + row[5] : ''),
+    phone    : row[7],
+    quantity : row[14],
+    status   : row[15]
+  }));
 
-    .btn-search:hover { background: #357abd; }
+  return ContentService
+    .createTextOutput(JSON.stringify({ orders }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-    .kg-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+function markShipped(rowIndex) {
+  const sheet = getSheet();
+  sheet.getRange(rowIndex, 16).setValue('배송완료'); // P열 = 상태
 
-    .kg-row input { flex: 1; }
-    .kg-unit {
-      font-size: 15px;
-      font-weight: 600;
-      color: #555;
-      white-space: nowrap;
-    }
-
-    .price-info {
-      background: #f0f7ff;
-      border-radius: 8px;
-      padding: 12px 14px;
-      font-size: 13px;
-      color: #4a90e2;
-      margin-top: 6px;
-    }
-
-    .btn-submit {
-      width: 100%;
-      padding: 15px;
-      background: #2ecc71;
-      color: white;
-      border: none;
-      border-radius: 10px;
-      font-size: 17px;
-      font-weight: 700;
-      cursor: pointer;
-      margin-top: 8px;
-      transition: background 0.2s;
-    }
-
-    .btn-submit:hover { background: #27ae60; }
-    .btn-submit:disabled { background: #aaa; cursor: not-allowed; }
-
-    .success-msg {
-      display: none;
-      text-align: center;
-      padding: 24px;
-    }
-
-    .success-msg .big-emoji { font-size: 56px; }
-    .success-msg h2 { font-size: 20px; font-weight: 700; margin-top: 12px; color: #1a1a2e; }
-    .success-msg p { font-size: 14px; color: #666; margin-top: 8px; line-height: 1.6; }
-
-    .order-summary {
-      background: #f8f9fa;
-      border-radius: 10px;
-      padding: 16px 18px;
-      margin-top: 20px;
-      text-align: left;
-    }
-
-    .order-summary h3 {
-      font-size: 13px;
-      font-weight: 700;
-      color: #888;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .summary-row {
-      display: flex;
-      gap: 10px;
-      padding: 7px 0;
-      border-bottom: 1px solid #eee;
-      font-size: 14px;
-    }
-
-    .summary-row:last-child { border-bottom: none; }
-    .summary-label { color: #888; min-width: 64px; flex-shrink: 0; }
-    .summary-value { color: #222; font-weight: 600; word-break: break-all; }
-
-    .price-box {
-      background: #f8f9fa;
-      border-radius: 8px;
-      padding: 12px 14px;
-      margin-top: 10px;
-      font-size: 14px;
-    }
-
-    .price-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 5px 0;
-      color: #555;
-      border-bottom: 1px solid #eee;
-    }
-
-    .price-row:last-child { border-bottom: none; }
-
-    .price-row.total {
-      font-size: 16px;
-      font-weight: 700;
-      color: #1a1a2e;
-      margin-top: 4px;
-      padding-top: 8px;
-    }
-
-    .free-ship { color: #2ecc71; font-weight: 600; }
-
-    .error-msg {
-      display: none;
-      background: #fff0f0;
-      color: #c0392b;
-      border-radius: 8px;
-      padding: 10px 14px;
-      font-size: 13px;
-      margin-top: 10px;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div id="formSection">
-      <div class="header">
-        <div class="emoji">🫐</div>
-        <h1>블루베리 주문하기</h1>
-        <p>신선한 블루베리를 산지에서 직접!</p>
-      </div>
-
-      <form id="orderForm">
-        <div class="form-group">
-          <label>이름 <span class="required">*</span></label>
-          <input type="text" id="name" placeholder="홍길동" required>
-        </div>
-
-        <div class="form-group">
-          <label>전화번호 <span class="required">*</span></label>
-          <input type="tel" id="phone" placeholder="010-1234-5678" required maxlength="13">
-        </div>
-
-        <div class="form-group">
-          <label>주소 <span class="required">*</span></label>
-          <div class="address-row">
-            <input type="text" id="postcode" placeholder="우편번호" readonly>
-            <button type="button" class="btn-search" onclick="searchAddress()">주소 검색</button>
-          </div>
-          <input type="text" id="address1" placeholder="도로명 주소" readonly style="margin-bottom:8px">
-          <input type="text" id="address2" placeholder="상세주소 (동/호수 등)" id="address2">
-        </div>
-
-        <div class="form-group">
-          <label>주문 수량 <span class="required">*</span></label>
-          <div class="kg-row">
-            <input type="number" id="quantity" placeholder="0" min="1" max="100" required oninput="calcPrice()">
-            <span class="kg-unit">KG</span>
-          </div>
-          <div class="price-box" id="priceBox" style="display:none">
-            <div class="price-row">
-              <span>상품금액</span>
-              <span id="priceProduct"></span>
-            </div>
-            <div class="price-row">
-              <span>배송비</span>
-              <span id="priceShipping"></span>
-            </div>
-            <div class="price-row total">
-              <span>결제금액</span>
-              <span id="priceTotal"></span>
-            </div>
-          </div>
-        </div>
-
-        <div class="error-msg" id="errorMsg"></div>
-
-        <button type="submit" class="btn-submit" id="submitBtn">주문하기</button>
-      </form>
-    </div>
-
-    <div class="success-msg" id="successSection">
-      <div class="big-emoji">✅</div>
-      <h2>주문이 완료되었습니다!</h2>
-      <p>주문해 주셔서 감사합니다.<br>배송 준비가 되면 별도로 연락드릴게요. 🫐</p>
-      <div class="order-summary">
-        <h3>📋 주문 확인</h3>
-        <div class="summary-row">
-          <span class="summary-label">이름</span>
-          <span class="summary-value" id="sumName"></span>
-        </div>
-        <div class="summary-row">
-          <span class="summary-label">전화번호</span>
-          <span class="summary-value" id="sumPhone"></span>
-        </div>
-        <div class="summary-row">
-          <span class="summary-label">주소</span>
-          <span class="summary-value" id="sumAddress"></span>
-        </div>
-        <div class="summary-row">
-          <span class="summary-label">수량</span>
-          <span class="summary-value" id="sumQuantity"></span>
-        </div>
-        <div class="summary-row">
-          <span class="summary-label">배송비</span>
-          <span class="summary-value" id="sumShipping"></span>
-        </div>
-        <div class="summary-row" style="border-top: 2px solid #ddd; margin-top:4px; padding-top:10px;">
-          <span class="summary-label" style="font-weight:700; color:#1a1a2e;">결제금액</span>
-          <span class="summary-value" style="color:#4a90e2; font-size:16px;" id="sumTotal"></span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 도로명주소 API -->
-  <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
-
-  <script>
-    // Google Apps Script 웹앱 URL (배포 후 여기에 입력)
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyEVI7ZLz90BPFGsWE6HY-dFwnr6v4bS08Oad1DE2bc-dOrgNvxfkcPgv73dDz2PUi8/exec';
-
-    // 전화번호 자동 하이픈
-    document.getElementById('phone').addEventListener('input', function(e) {
-      let v = e.target.value.replace(/\D/g, '');
-      if (v.length <= 3) {
-        e.target.value = v;
-      } else if (v.length <= 7) {
-        e.target.value = v.slice(0,3) + '-' + v.slice(3);
-      } else {
-        e.target.value = v.slice(0,3) + '-' + v.slice(3,7) + '-' + v.slice(7,11);
-      }
-    });
-
-    const PRICE_PER_KG   = 35000;
-    const SHIPPING_1KG   = 5000;
-
-    function calcPrice() {
-      const qty = parseInt(document.getElementById('quantity').value);
-      const box = document.getElementById('priceBox');
-      if (!qty || qty < 1) { box.style.display = 'none'; return; }
-
-      const product  = qty * PRICE_PER_KG;
-      const shipping = qty === 1 ? SHIPPING_1KG : 0;
-      const total    = product + shipping;
-
-      document.getElementById('priceProduct').textContent  = product.toLocaleString() + '원';
-      document.getElementById('priceShipping').innerHTML   = shipping === 0
-        ? '<span class="free-ship">무료</span>'
-        : shipping.toLocaleString() + '원';
-      document.getElementById('priceTotal').textContent    = total.toLocaleString() + '원';
-      box.style.display = 'block';
-    }
-
-    // 카카오 주소 검색
-    function searchAddress() {
-      new daum.Postcode({
-        oncomplete: function(data) {
-          document.getElementById('postcode').value = data.zonecode;
-          document.getElementById('address1').value = data.roadAddress || data.jibunAddress;
-          document.getElementById('address2').focus();
-        }
-      }).open();
-    }
-
-    // 폼 제출
-    document.getElementById('orderForm').addEventListener('submit', async function(e) {
-      e.preventDefault();
-
-      const name     = document.getElementById('name').value.trim();
-      const phone    = document.getElementById('phone').value.trim();
-      const postcode = document.getElementById('postcode').value.trim();
-      const address1 = document.getElementById('address1').value.trim();
-      const address2 = document.getElementById('address2').value.trim();
-      const quantity = document.getElementById('quantity').value.trim();
-
-      const errorMsg = document.getElementById('errorMsg');
-      errorMsg.style.display = 'none';
-
-      // 유효성 검사
-      if (!name || !phone || !postcode || !address1 || !quantity) {
-        errorMsg.textContent = '모든 필수 항목을 입력해 주세요.';
-        errorMsg.style.display = 'block';
-        return;
-      }
-
-      if (!/^010-\d{4}-\d{4}$/.test(phone)) {
-        errorMsg.textContent = '전화번호 형식을 확인해 주세요. (예: 010-1234-5678)';
-        errorMsg.style.display = 'block';
-        return;
-      }
-
-      const btn = document.getElementById('submitBtn');
-      btn.disabled = true;
-      btn.textContent = '주문 접수 중...';
-
-      const orderData = {
-        name,
-        phone,
-        postcode,
-        address: address1 + (address2 ? ' ' + address2 : ''),
-        quantity: Number(quantity),
-        orderedAt: new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
-      };
-
-      try {
-        await fetch(SCRIPT_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderData)
-        });
-
-        const qty      = Number(quantity);
-        const shipping = qty === 1 ? SHIPPING_1KG : 0;
-        const total    = qty * PRICE_PER_KG + shipping;
-
-        document.getElementById('sumName').textContent     = name;
-        document.getElementById('sumPhone').textContent    = phone;
-        document.getElementById('sumAddress').textContent  = address1 + (address2 ? ' ' + address2 : '');
-        document.getElementById('sumQuantity').textContent = qty + ' KG';
-        document.getElementById('sumShipping').textContent = shipping === 0 ? '무료' : shipping.toLocaleString() + '원';
-        document.getElementById('sumTotal').textContent    = total.toLocaleString() + '원';
-
-        document.getElementById('formSection').style.display = 'none';
-        document.getElementById('successSection').style.display = 'block';
-
-      } catch (err) {
-        errorMsg.textContent = '주문 전송 중 오류가 발생했습니다. 다시 시도해 주세요.';
-        errorMsg.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = '주문하기';
-      }
-    });
-  </script>
-</body>
-</html>
+  return ContentService
+    .createTextOutput(JSON.stringify({ success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
