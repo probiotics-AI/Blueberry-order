@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>블루베리 주문 관리</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    /* ── 로그인 화면 ── */
+    .login-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .login-card {
+      background: white;
+      border-radius: 16px;
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+
+    .login-card .emoji { font-size: 48px; }
+    .login-card h2 { font-size: 20px; font-weight: 700; margin: 12px 0 4px; color: #1a1a2e; }
+    .login-card p  { font-size: 13px; color: #888; margin-bottom: 24px; }
+
+    .login-card input[type="password"] {
+      width: 100%;
+      padding: 13px 14px;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 15px;
+      outline: none;
+      margin-bottom: 12px;
+      transition: border-color 0.2s;
+    }
+
+    .login-card input:focus { border-color: #4a90e2; }
+
+    .btn-login {
+      width: 100%;
+      padding: 13px;
+      background: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-login:hover { background: #357abd; }
+
+    .login-error {
+      color: #e74c3c;
+      font-size: 13px;
+      margin-top: 10px;
+      display: none;
+    }
+
+    /* ── 관리자 화면 ── */
+    #adminSection { display: none; }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .top-bar h1 { font-size: 20px; font-weight: 700; color: #1a1a2e; }
+
+    .top-right { display: flex; gap: 10px; align-items: center; }
+
+    .btn-refresh {
+      padding: 9px 16px;
+      background: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-refresh:hover { background: #357abd; }
+
+    .btn-logout {
+      padding: 9px 16px;
+      background: white;
+      color: #888;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-logout:hover { border-color: #e74c3c; color: #e74c3c; }
+
+    /* 통계 카드 */
+    .stats {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 16px 20px;
+      flex: 1;
+      min-width: 120px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+
+    .stat-card .label { font-size: 12px; color: #888; }
+    .stat-card .value { font-size: 24px; font-weight: 700; color: #1a1a2e; margin-top: 4px; }
+    .stat-card .unit  { font-size: 13px; color: #888; }
+
+    /* 필터 */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      padding: 7px 14px;
+      border-radius: 20px;
+      border: 1.5px solid #ddd;
+      background: white;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      color: #555;
+    }
+
+    .filter-btn.active {
+      background: #4a90e2;
+      border-color: #4a90e2;
+      color: white;
+      font-weight: 600;
+    }
+
+    /* 주문 카드 */
+    .order-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .order-card {
+      background: white;
+      border-radius: 12px;
+      padding: 18px 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      border-left: 4px solid #4a90e2;
+      transition: box-shadow 0.2s;
+    }
+
+    .order-card.shipped { border-left-color: #2ecc71; opacity: 0.75; }
+
+    .order-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
+
+    .order-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .order-name { font-size: 16px; font-weight: 700; color: #1a1a2e; }
+    .order-time { font-size: 12px; color: #aaa; }
+
+    .order-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+      margin-top: 12px;
+      font-size: 13px;
+      color: #555;
+    }
+
+    .order-body .full { grid-column: 1 / -1; }
+
+    .order-body strong { color: #333; }
+
+    .order-footer {
+      margin-top: 14px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-pending  { background: #fff3cd; color: #856404; }
+    .badge-shipped  { background: #d1f2eb; color: #1a7a4e; }
+
+    .btn-ship {
+      padding: 8px 18px;
+      background: #2ecc71;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-ship:hover { background: #27ae60; }
+    .btn-ship:disabled { background: #aaa; cursor: not-allowed; }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #aaa;
+      font-size: 15px;
+    }
+
+    .empty-state .emoji { font-size: 48px; display: block; margin-bottom: 12px; }
+
+    .loading {
+      text-align: center;
+      padding: 60px;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 로그인 -->
+  <div class="login-wrap" id="loginSection">
+    <div class="login-card">
+      <div class="emoji">🔐</div>
+      <h2>관리자 로그인</h2>
+      <p>블루베리 주문 관리 시스템</p>
+      <input type="password" id="pwInput" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter') login()">
+      <button class="btn-login" onclick="login()">로그인</button>
+      <div class="login-error" id="loginError">비밀번호가 올바르지 않습니다.</div>
+    </div>
+  </div>
+
+  <!-- 관리자 화면 -->
+  <div id="adminSection">
+    <div class="top-bar">
+      <h1>🫐 블루베리 주문 관리</h1>
+      <div class="top-right">
+        <button class="btn-refresh" onclick="loadOrders()">새로고침</button>
+        <button class="btn-logout" onclick="logout()">로그아웃</button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <div class="label">전체 주문</div>
+        <div class="value" id="statTotal">-</div>
+        <div class="unit">건</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">배송 대기</div>
+        <div class="value" id="statPending">-</div>
+        <div class="unit">건</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">배송 완료</div>
+        <div class="value" id="statShipped">-</div>
+        <div class="unit">건</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">총 수량</div>
+        <div class="value" id="statKg">-</div>
+        <div class="unit">KG</div>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn active" onclick="setFilter('all', this)">전체</button>
+      <button class="filter-btn" onclick="setFilter('pending', this)">배송 대기</button>
+      <button class="filter-btn" onclick="setFilter('shipped', this)">배송 완료</button>
+    </div>
+
+    <div class="order-list" id="orderList">
+      <div class="loading">불러오는 중...</div>
+    </div>
+  </div>
+
+  <script>
+    // ── 설정 ──────────────────────────────────────────
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyEVI7ZLz90BPFGsWE6HY-dFwnr6v4bS08Oad1DE2bc-dOrgNvxfkcPgv73dDz2PUi8/exec';
+    const ADMIN_PW   = 'blueberry2024';                // 원하는 비밀번호로 변경
+    // ──────────────────────────────────────────────────
+
+    let allOrders = [];
+    let currentFilter = 'all';
+
+    // 로그인
+    function login() {
+      const pw = document.getElementById('pwInput').value;
+      if (pw === ADMIN_PW) {
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('adminSection').style.display = 'block';
+        loadOrders();
+      } else {
+        document.getElementById('loginError').style.display = 'block';
+      }
+    }
+
+    function logout() {
+      document.getElementById('loginSection').style.display = 'flex';
+      document.getElementById('adminSection').style.display = 'none';
+      document.getElementById('pwInput').value = '';
+    }
+
+    // 주문 불러오기
+    async function loadOrders() {
+      document.getElementById('orderList').innerHTML = '<div class="loading">불러오는 중...</div>';
+      try {
+        const res = await fetch(`${SCRIPT_URL}?action=getOrders`);
+        const data = await res.json();
+        allOrders = data.orders || [];
+        updateStats();
+        renderOrders();
+      } catch (err) {
+        document.getElementById('orderList').innerHTML =
+          '<div class="empty-state"><span class="emoji">⚠️</span>데이터를 불러오지 못했습니다.<br>Apps Script URL을 확인해 주세요.</div>';
+      }
+    }
+
+    // 통계 업데이트
+    function updateStats() {
+      const total   = allOrders.length;
+      const pending = allOrders.filter(o => o.status !== '배송완료').length;
+      const shipped = allOrders.filter(o => o.status === '배송완료').length;
+      const kg      = allOrders.reduce((sum, o) => sum + Number(o.quantity || 0), 0);
+
+      document.getElementById('statTotal').textContent   = total;
+      document.getElementById('statPending').textContent = pending;
+      document.getElementById('statShipped').textContent = shipped;
+      document.getElementById('statKg').textContent      = kg;
+    }
+
+    // 필터
+    function setFilter(filter, btn) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderOrders();
+    }
+
+    // 주문 렌더링
+    function renderOrders() {
+      const list = currentFilter === 'all'
+        ? allOrders
+        : currentFilter === 'pending'
+          ? allOrders.filter(o => o.status !== '배송완료')
+          : allOrders.filter(o => o.status === '배송완료');
+
+      const el = document.getElementById('orderList');
+
+      if (list.length === 0) {
+        el.innerHTML = '<div class="empty-state"><span class="emoji">📭</span>주문이 없습니다.</div>';
+        return;
+      }
+
+      // 최신순 정렬
+      const sorted = [...list].reverse();
+
+      el.innerHTML = sorted.map((order, idx) => {
+        const isShipped = order.status === '배송완료';
+        const rowIndex  = order.rowIndex;
+        return `
+          <div class="order-card ${isShipped ? 'shipped' : ''}" id="card-${rowIndex}">
+            <div class="order-header">
+              <div>
+                <span class="order-name">${escHtml(order.name)}</span>
+                &nbsp;
+                <span class="badge ${isShipped ? 'badge-shipped' : 'badge-pending'}">
+                  ${isShipped ? '✅ 배송완료' : '⏳ 배송대기'}
+                </span>
+              </div>
+              <span class="order-time">${escHtml(order.orderedAt || '')}</span>
+            </div>
+            <div class="order-body">
+              <div><strong>전화번호</strong><br>${escHtml(order.phone)}</div>
+              <div><strong>수량</strong><br>${escHtml(String(order.quantity))} KG</div>
+              <div class="full"><strong>주소</strong><br>${escHtml(order.address)}</div>
+            </div>
+            ${!isShipped ? `
+            <div class="order-footer">
+              <button class="btn-ship" onclick="markShipped(${rowIndex}, this)">🚚 발송완료 처리</button>
+            </div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 발송완료 처리
+    async function markShipped(rowIndex, btn) {
+      if (!confirm('발송완료 처리하시겠습니까?')) return;
+      btn.disabled = true;
+      btn.textContent = '처리 중...';
+
+      try {
+        const res = await fetch(SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'markShipped', rowIndex })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const order = allOrders.find(o => o.rowIndex === rowIndex);
+          if (order) order.status = '배송완료';
+          updateStats();
+          renderOrders();
+        } else {
+          alert('처리 실패: ' + (data.error || '알 수 없는 오류'));
+          btn.disabled = false;
+          btn.textContent = '🚚 발송완료 처리';
+        }
+      } catch (err) {
+        alert('오류가 발생했습니다. 다시 시도해 주세요.');
+        btn.disabled = false;
+        btn.textContent = '🚚 발송완료 처리';
+      }
+    }
+
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>
